@@ -27,7 +27,56 @@ Pushes needs-you moments (`agent.state_changed` → approval/question/stopped) a
 
 ## Implement
 
-Edit `server.js` → `onEvent(event)`. Subscribed topics arrive there; use `call('method', params)` for capabilities and `publish('command.x', data)` for commands. `settings` holds the host-injected config above.
+Implemented in `server.js`. Two directions:
+
+### Outbound (fully working)
+
+On each subscribed event the sidecar formats a message and POSTs it to
+`settings.webhookUrl` via the global `fetch`. Slack vs Discord is detected by the
+webhook host (`hooks.slack.com` → Slack `{ text }` [+ `channel` if set];
+`discord.com`/`discordapp.com` → Discord `{ content }`).
+
+- `agent.state_changed` with `mode ∈ { approval, question, stopped }`:
+  - **approval** — `⏳ *<name>* needs approval — <tool>`. It first calls
+    `sessions.snapshot` to pull `pendingApproval` so the tool (e.g. the `Bash`
+    command or the target file) is named.
+  - **question** — `❓ *<name>* asked: <question>` plus the numbered options,
+    read from the snapshot's `pendingQuestions[0]`.
+  - **stopped** — `🛑 *<name>* stopped and is waiting for you.`
+- `workflow.completed` / `workflow.failed` — `✅ finished` / `❌ failed:
+  *<name>* (<duration>, <tokens>, <tools>)`.
+
+`<name>` is the session `label` (falling back to the cwd basename). Every message
+carries the ``sessionId`` so you know what to reply to. Rapid repeats of the same
+`(sessionId, state)` inside 10 s are de-duped.
+
+### Inbound (bidirectional, best-effort)
+
+The sidecar also serves **`POST /reply`** on its own port
+(`http://127.0.0.1:<server.port>/reply`, default `9201`) so your own Slack app can
+forward the user's replies back to the fleet. Body is JSON:
+
+```
+POST /reply   Content-Type: application/json
+{ "sessionId": "<id>", "action": "approve" | "answer" | "mode", "text": "<...>" }
+```
+
+- `action: "approve"` → `claude.approve` — `text` is the decision
+  `yes | no | always` (default `yes`; `y`/`ok` → yes, `n`/`deny` → no).
+- `action: "answer"` → `claude.answer` — a numeric `text` selects the 1-based
+  option (`{ option }`); any other `text` is sent as the free-text answer.
+- `action: "mode"` → `claude.setPermissionMode` — `text` is the permission mode
+  (e.g. `plan`, `acceptEdits`, `default`, `bypassPermissions`).
+
+Responds `200 { ok: true, ... }` on success, `400 { ok: false, error }` otherwise.
+
+**Receiving Slack messages directly requires a Slack app you own.** This sidecar
+does not open a socket to Slack itself — set up a Slack app with the Events API
+(or Socket Mode) that listens for messages/interactions in your channel and, for
+each reply, does an HTTP `POST` to this endpoint with the matching `sessionId`
+(from the outbound message) and the mapped `action`/`text`. Discord works the same
+way via an interactions endpoint or a bot. `settings.botToken` is reserved for a
+future built-in Socket-Mode listener and is not required for `/reply`.
 
 ## Layout
 
