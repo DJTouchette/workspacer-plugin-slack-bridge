@@ -1,0 +1,57 @@
+{
+  "id": "djtouchette.slack-bridge",
+  "name": "Slack Bridge",
+  "apiVersion": "1",
+  "server": {
+    "command": "node",
+    "args": [
+      "server.js"
+    ],
+    "port": 9201,
+    "health": "/health"
+  },
+  "panes": [
+    {
+      "type": "djtouchette.slack-bridge",
+      "title": "Slack Bridge",
+      "icon": "\ud83d\udcac",
+      "scope": "global",
+      "path": "/"
+    }
+  ],
+  "settings": [
+    {
+      "key": "webhookUrl",
+      "label": "Incoming webhook URL",
+      "type": "string",
+      "default": "",
+      "help": "Slack/Discord incoming webhook for outbound messages."
+    },
+    {
+      "key": "botToken",
+      "label": "Bot token (for replies)",
+      "type": "string",
+      "default": "",
+      "help": "Optional: a bot token to receive replies and act on them."
+    },
+    {
+      "key": "channel",
+      "label": "Channel",
+      "type": "string",
+      "default": "",
+      "help": "Channel to post to."
+    }
+  ],
+  "capabilities": [
+    "notifications.post",
+    "claude.approve",
+    "claude.answer",
+    "claude.setPermissionMode",
+    "sessions.snapshot"
+  ],
+  "consumes": [
+    "agent.state_changed",
+    "workflow.completed",
+    "workflow.failed"
+  ]
+}
