@@ -2,7 +2,7 @@
 
 Monitor and steer your fleet from Slack/Discord — bidirectionally.
 
-A [workspacer](https://github.com/DJTouchette/workspacer) hub plugin (sidecar). **Runnable scaffold** — it loads, connects to the hub bus, and shows live activity; the real logic is stubbed with clear TODOs.
+A [workspacer](https://github.com/DJTouchette/workspacer) hub plugin (sidecar). Implemented and exercised end-to-end against a headless workspacer hub.
 
 ## What it does
 
@@ -41,7 +41,10 @@ webhook host (`hooks.slack.com` → Slack `{ text }` [+ `channel` if set];
     `sessions.snapshot` to pull `pendingApproval` so the tool (e.g. the `Bash`
     command or the target file) is named.
   - **question** — `❓ *<name>* asked: <question>` plus the numbered options,
-    read from the snapshot's `pendingQuestions[0]`.
+    read from the snapshot's `pendingQuestions[0]`. Both snapshot provider
+    shapes are supported (the desktop app's `pendingApproval`/`pendingQuestions`
+    and the headless brain's claudemon `pending {kind, tool, raw, questions}`),
+    so the bridge also works GUI-less.
   - **stopped** — `🛑 *<name>* stopped and is waiting for you.`
 - `workflow.completed` / `workflow.failed` — `✅ finished` / `❌ failed:
   *<name>* (<duration>, <tokens>, <tools>)`.

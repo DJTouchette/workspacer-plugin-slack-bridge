@@ -98,6 +98,30 @@ function agentName(label, cwd) {
   return base ? clip(base, 60) : 'agent';
 }
 
+// Accept both snapshot providers' shapes:
+// - desktop app:    { pendingApproval: {toolName, toolInput}, pendingQuestions: [...] }
+// - headless brain: { pending: { kind:'approval'|'question', tool, raw, questions } } (claudemon)
+function pendingApprovalOf(snap) {
+  if (!snap || typeof snap !== 'object') return null;
+  const pa = snap.pendingApproval;
+  if (pa && pa.toolName) return pa;
+  const p = snap.pending;
+  if (p && String(p.kind || '').toLowerCase() === 'approval') {
+    const raw = p.raw && typeof p.raw === 'object' ? p.raw : {};
+    const toolName = p.tool || raw.tool_name;
+    if (!toolName) return null;
+    return { toolName, toolInput: raw.tool_input };
+  }
+  return null;
+}
+function pendingQuestionsOf(snap) {
+  if (!snap || typeof snap !== 'object') return null;
+  if (Array.isArray(snap.pendingQuestions) && snap.pendingQuestions.length) return snap.pendingQuestions;
+  const p = snap.pending;
+  if (p && String(p.kind || '').toLowerCase() === 'question' && Array.isArray(p.questions)) return p.questions;
+  return null;
+}
+
 // Best-effort one-line description of a pending tool call.
 function describeTool(pa) {
   if (!pa || !pa.toolName) return 'a tool';
@@ -165,10 +189,12 @@ async function onEvent(event) {
     const name = agentName(snap && snap.label, (snap && snap.cwd) || d.cwd);
     let text;
     if (mode === 'approval') {
-      const detail = snap && snap.pendingApproval ? describeTool(snap.pendingApproval) : 'a tool';
+      const pa = pendingApprovalOf(snap);
+      const detail = pa ? describeTool(pa) : 'a tool';
       text = '⏳ *' + name + '* needs approval — ' + detail + '\n`' + sessionId + '`';
     } else if (mode === 'question') {
-      const q = snap && snap.pendingQuestions && snap.pendingQuestions[0];
+      const qs = pendingQuestionsOf(snap);
+      const q = qs && qs[0];
       let body = 'a question';
       if (q) {
         const opts = (q.options || []).map((o, i) => (i + 1) + ') ' + clip(o.label, 60)).join('  ');
