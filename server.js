@@ -92,6 +92,25 @@ function describeTool(pa) {
   return target ? t + ': ' + clip(target, 160) : t;
 }
 
+// ── Operational-failure notifications ─────────────────────────────────────────
+// The bridge IS a notification channel, so routine traffic is never mirrored to
+// the in-app center. What DOES get surfaced there is the bridge breaking:
+// webhook/auth/delivery errors, in either direction. One `key` per plugin means
+// repeated failures hold a single slot in the center instead of stacking.
+async function notifyBridgeError(direction, detail) {
+  try {
+    await wks.call('notifications.post', {
+      title: 'Slack Bridge ' + direction + ' failed',
+      body: direction + ': ' + clip(detail, 300),
+      level: 'error',
+      source: 'plugin:' + manifest.id,
+      key: 'slack-bridge:error',
+    });
+  } catch (e) {
+    log('notifications.post failed: ' + e.message);
+  }
+}
+
 async function deliver(text) {
   const url = settings.webhookUrl;
   if (!url) { log('no webhookUrl configured; skipping outbound'); return; }
@@ -107,10 +126,16 @@ async function deliver(text) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) log('webhook POST ' + res.status + ' ' + clip(await res.text().catch(() => ''), 120));
-    else log('delivered to ' + kind + ' webhook');
+    if (!res.ok) {
+      const detail = clip(await res.text().catch(() => ''), 120);
+      log('webhook POST ' + res.status + ' ' + detail);
+      await notifyBridgeError('outbound', kind + ' webhook HTTP ' + res.status + (detail ? ' — ' + detail : ''));
+    } else {
+      log('delivered to ' + kind + ' webhook');
+    }
   } catch (e) {
     log('webhook POST failed: ' + e.message);
+    await notifyBridgeError('outbound', kind + ' webhook POST failed — ' + e.message);
   }
 }
 
@@ -259,6 +284,10 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify(out));
       } catch (e) {
         log('reply error: ' + e.message);
+        // The user replied from Slack and it did NOT reach the agent — surface
+        // it, because from Slack's side the failure is invisible.
+        await notifyBridgeError('inbound', '/reply ' + (payload.action || '?')
+          + (payload.sessionId ? ' → ' + payload.sessionId : '') + ' failed — ' + e.message);
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));
       }
@@ -287,4 +316,23 @@ server.listen(PORT, '127.0.0.1', () => log('pane + /reply on http://127.0.0.1:' 
 // Route each consumed bus event to onEvent (the SDK subscribes to '*'; we
 // dispatch only the topics this plugin declares in plugin.json `consumes`).
 for (const t of TOPICS) wks.on(t, (_data, ev) => { onEvent(ev).catch((e) => log('onEvent error: ' + e.message)); });
-wks.ready.then(() => log('connected; subscribed to ' + (TOPICS.join(', ') || '(nothing)')));
+wks.ready.then(async () => {
+  log('connected; subscribed to ' + (TOPICS.join(', ') || '(nothing)'));
+  // Silent, history-only breadcrumb: the bridge came up (first connect only —
+  // the SDK's reconnect loop must not re-post it). No toast, no OS.
+  try {
+    await wks.call('notifications.post', {
+      title: 'Slack Bridge connected',
+      body: settings.webhookUrl
+        ? 'outbound via ' + webhookKind(settings.webhookUrl) + ' webhook · POST /reply on port ' + PORT
+        : 'no webhookUrl configured — outbound disabled · POST /reply on port ' + PORT,
+      level: 'info',
+      source: 'plugin:' + manifest.id,
+      key: 'slack-bridge:status',
+      silent: true,
+      inAppOnly: true,
+    });
+  } catch (e) {
+    log('startup notifications.post failed: ' + e.message);
+  }
+});

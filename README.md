@@ -8,6 +8,22 @@ A [workspacer](https://github.com/DJTouchette/workspacer) hub plugin (sidecar). 
 
 Pushes needs-you moments (`agent.state_changed` → approval/question/stopped) and workflow results to a Slack/Discord webhook. Bidirectional: a reply calls `claude.approve` / `claude.answer` / `claude.setPermissionMode` so you approve tools and answer questions from your phone.
 
+## Notifications (v1.1)
+
+The bridge is itself a notification channel, so routine traffic is **never**
+mirrored into the workspacer notification center. Only operational failures are:
+
+- **Outbound delivery fails** (webhook `POST` non-2xx or network error) →
+  `notifications.post` with `level: 'error'`, naming the webhook kind, HTTP
+  status/error, and the direction.
+- **Inbound reply fails** (a `/reply` from your Slack app couldn't be applied —
+  e.g. the `claude.approve` call errored) → same `level: 'error'` notification;
+  from Slack's side that failure is otherwise invisible.
+- Both use **`key: 'slack-bridge:error'`** so repeated failures hold a single
+  slot instead of stacking.
+- On first bus connect a **silent, history-only** "Slack Bridge connected" entry
+  (`silent` + `inAppOnly`) records the bridge status — no toast, no OS popup.
+
 ## Bus wiring
 
 - **Subscribes to:** `agent.state_changed`, `workflow.completed`, `workflow.failed`
